@@ -1,0 +1,18 @@
+# CODEOWNERS
+# Place this file in the `.github/` directory at the org level to apply across all repositories.
+# For repository-specific overrides, add a CODEOWNERS file in that repo's root or docs/ folder.
+
+# Default owner for all files
+* @williaby
+
+# Examples: Uncomment and customize as needed
+# Docs directory owned by documentation team
+# docs/ @williaby
+# Source code owned by development team
+# src/ @williaby
+# Configuration files owned by DevOps
+# *.yml @williaby
+
+# Annotation: Doc A – Code-Review & Branch-Protection scorecard requirement.
+
+# Last updated: April 30, 2025
