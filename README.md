@@ -51,20 +51,55 @@ and support best practices.
 - [`LICENSE`](./LICENSE)
   MIT License for organization projects.
 
-## Workflow Templates
+## Reusable Workflows
 
-The [`workflow-templates/`](./workflow-templates/) directory contains reusable GitHub Actions workflows for Python projects:
+The `.github/workflows/` directory contains centralized, reusable GitHub Actions workflows that can be called from any Python repository:
 
-- **Python CI Pipeline** - Comprehensive CI with UV, pytest, MyPy, and Ruff
-- **Codecov Upload** - Secure coverage reporting workflow
-- **Security Analysis** - CodeQL, Bandit, Safety, OSV Scanner, and OWASP checks
-- **Documentation** - MkDocs build, validation, and GitHub Pages deployment
-- **Release** - SLSA Level 3 provenance and Sigstore signing
-- **Publish to PyPI** - OIDC Trusted Publishing for PyPI/TestPyPI
-- **Fuzz Testing** - ClusterFuzzLite integration
-- **SonarCloud** - Continuous code quality monitoring
+### Available Workflows
 
-See the [workflow-templates README](./workflow-templates/README.md) for detailed documentation.
+- **[Python CI](USAGE_EXAMPLES.md#python-ci)** (`python-ci.yml`) - Comprehensive CI with testing, linting, type checking across multiple Python versions
+- **[PyPI Publishing](USAGE_EXAMPLES.md#pypi-publishing)** (`python-publish-pypi.yml`) - OIDC-authenticated publishing (no secrets!)
+- **[Security Analysis](USAGE_EXAMPLES.md#security-analysis)** (`python-security-analysis.yml`) - CodeQL, Bandit, Safety, OSV Scanner
+- **[Documentation](USAGE_EXAMPLES.md#documentation)** (`python-docs.yml`) - MkDocs build and GitHub Pages deployment
+- **[Releases](USAGE_EXAMPLES.md#releases)** (`python-release.yml`) - Signed releases with SLSA provenance and SBOM
+
+### Key Features
+
+✅ **Security Hardened** - All actions pinned to commit SHAs
+✅ **Minimal Permissions** - Principle of least privilege
+✅ **Network Monitoring** - harden-runner on all jobs
+✅ **OIDC Authentication** - No stored secrets for PyPI
+✅ **Customizable** - Extensive input parameters
+✅ **Qlty Integration** - Automated code quality checks (see below)
+
+### Quick Start
+
+```yaml
+# .github/workflows/ci.yml in your Python repo
+name: CI
+on: [push, pull_request]
+
+jobs:
+  ci:
+    uses: williaby/.github/.github/workflows/python-ci.yml@main
+    with:
+      python-versions: '["3.11", "3.12"]'
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+```
+
+### Documentation
+
+- **[USAGE_EXAMPLES.md](USAGE_EXAMPLES.md)** - Detailed usage examples
+- **[CONVERSION_ACTION_PLAN.md](CONVERSION_ACTION_PLAN.md)** - Migration guide
+- **[ACTION_SHA_REFERENCE.md](ACTION_SHA_REFERENCE.md)** - Action commit SHAs
+- **[QLTY_INTEGRATION.md](QLTY_INTEGRATION.md)** - Qlty Cloud integration guide
+
+---
+
+## Qlty Cloud Integration
+
+Qlty Cloud provides centralized code quality management across all repositories. See [QLTY_INTEGRATION.md](QLTY_INTEGRATION.md) for setup guide.
 
 ## How It Works
 

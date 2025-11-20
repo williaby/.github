@@ -1,0 +1,193 @@
+# Python Release - Reusable Workflow
+# Builds signed releases with SLSA provenance and SBOM generation
+#
+# Usage from downstream repos:
+#   on:
+#     push:
+#       tags: ['v*']
+#
+#   jobs:
+#     release:
+#       uses: williaby/.github/.github/workflows/python-release.yml@main
+#       with:
+#         package-name: 'my-package'
+#       permissions:
+#         contents: write
+#         id-token: write
+#         attestations: write
+
+name: Python Release (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: 'Package name for release notes'
+        type: string
+        required: false
+        default: 'python-package'
+
+      python-version:
+        description: 'Python version for building'
+        type: string
+        required: false
+        default: '3.12'
+
+      generate-sbom:
+        description: 'Generate Software Bill of Materials'
+        type: boolean
+        required: false
+        default: true
+
+      sign-artifacts:
+        description: 'Sign artifacts with Sigstore'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build Distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build distribution packages
+        run: |
+          uv build
+          echo "📦 Built packages:"
+          ls -lh dist/
+
+      - name: Generate SBOM
+        if: ${{ inputs.generate-sbom }}
+        run: |
+          echo "📋 Generating Software Bill of Materials..."
+          pip install cyclonedx-bom==4.6.1
+
+          # Generate SBOM from dependencies
+          uv export --format requirements-txt --output-file requirements-all.txt --no-hashes
+          cyclonedx-py requirements requirements-all.txt --of json -o dist/sbom.json
+
+          rm -f requirements-all.txt
+
+          echo "✅ SBOM generated: dist/sbom.json"
+
+      - name: Generate artifact hashes
+        id: hash
+        working-directory: dist
+        run: |
+          echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: release-dist
+          path: dist/
+          retention-days: 5
+
+  sign-and-release:
+    name: Sign & Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Download artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: release-dist
+          path: dist/
+
+      - name: Sign artifacts with Sigstore
+        if: ${{ inputs.sign-artifacts }}
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        with:
+          inputs: ./dist/*.tar.gz ./dist/*.whl
+          release-signing-artifacts: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "Creating release for tag: $TAG_NAME"
+
+          gh release create "$TAG_NAME" \
+            --repo ${{ github.repository }} \
+            --title "${{ inputs.package-name }} $TAG_NAME" \
+            --notes "## 🎉 Release $TAG_NAME
+
+          ### 📦 Installation
+
+          \`\`\`bash
+          pip install ${{ inputs.package-name }}==${TAG_NAME#v}
+          \`\`\`
+
+          ### 🔒 Security
+
+          - All artifacts are signed with Sigstore
+          - SBOM (Software Bill of Materials) included
+          - SHA256 hashes available for verification
+
+          ### 📋 Verification
+
+          Verify signatures using:
+          \`\`\`bash
+          cosign verify-blob \\
+            --certificate <artifact>.crt \\
+            --signature <artifact>.sig \\
+            --certificate-identity-regexp 'https://github.com/${{ github.repository }}' \\
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \\
+            <artifact>
+          \`\`\`" \
+            dist/*
+
+      - name: Upload release summary
+        run: |
+          echo "## 🎉 Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: ${GITHUB_REF#refs/tags/}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package**: ${{ inputs.package-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔒 Security Features" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Sigstore signing" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SBOM generated" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SHA256 hashes" >> $GITHUB_STEP_SUMMARY

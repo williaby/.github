@@ -1,0 +1,292 @@
+# Python CI - Reusable Workflow
+# Comprehensive CI with UV dependency management, testing, linting, and type checking
+#
+# Usage from downstream repos:
+#   jobs:
+#     ci:
+#       uses: williaby/.github/.github/workflows/python-ci.yml@main
+#       with:
+#         python-versions: '["3.10", "3.11", "3.12"]'
+#       secrets:
+#         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+name: Python CI (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'JSON array of Python versions to test (e.g., ["3.10", "3.11", "3.12"])'
+        type: string
+        required: false
+        default: '["3.10", "3.11", "3.12", "3.13"]'
+
+      source-directory:
+        description: 'Source code directory for coverage'
+        type: string
+        required: false
+        default: 'src'
+
+      test-directory:
+        description: 'Test directory'
+        type: string
+        required: false
+        default: 'tests'
+
+      coverage-threshold:
+        description: 'Minimum coverage percentage'
+        type: number
+        required: false
+        default: 80
+
+      run-mypy:
+        description: 'Run MyPy type checking'
+        type: boolean
+        required: false
+        default: true
+
+      run-ruff:
+        description: 'Run Ruff linting and formatting checks'
+        type: boolean
+        required: false
+        default: true
+
+      mypy-strict:
+        description: 'Use strict MyPy configuration'
+        type: boolean
+        required: false
+        default: true
+
+    secrets:
+      CODECOV_TOKEN:
+        description: 'Codecov token for coverage uploads (optional)'
+        required: false
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+env:
+  CI_ENVIRONMENT: true
+  UV_CACHE_DIR: ~/.cache/uv
+  MYPY_CACHE_DIR: ~/.cache/mypy
+
+jobs:
+  # Setup and dependency caching
+  setup:
+    name: Setup Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      uv-hash: ${{ steps.cache-key.outputs.uv-hash }}
+      pyproject-hash: ${{ steps.cache-key.outputs.pyproject-hash }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Generate cache keys
+        id: cache-key
+        run: |
+          echo "uv-hash=${{ hashFiles('**/uv.lock', '**/poetry.lock') }}" >> $GITHUB_OUTPUT
+          echo "pyproject-hash=${{ hashFiles('**/pyproject.toml') }}" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: '3.12'
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Cache UV dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: py-deps-${{ runner.os }}-${{ steps.cache-key.outputs.uv-hash }}
+          restore-keys: |
+            py-deps-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          uv sync --no-interaction --all-extras
+
+  # Comprehensive testing across Python versions
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: setup
+    strategy:
+      matrix:
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+      fail-fast: false
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Restore dependency cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: py-deps-${{ runner.os }}-${{ needs.setup.outputs.uv-hash }}
+          restore-keys: |
+            py-deps-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          uv sync --no-interaction --all-extras
+
+      - name: Run test suite
+        run: |
+          uv run pytest -v \
+            --cov=${{ inputs.source-directory }} \
+            --cov-report=xml:coverage-${{ matrix.python-version }}.xml \
+            --cov-report=term-missing \
+            --cov-report=html:htmlcov-${{ matrix.python-version }} \
+            --cov-fail-under=${{ inputs.coverage-threshold }} \
+            --junitxml=junit-${{ matrix.python-version }}.xml \
+            -o junit_family=xunit2 \
+            --tb=short \
+            --maxfail=10 \
+            ${{ inputs.test-directory }}
+        env:
+          CI_ENVIRONMENT: true
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: |
+            junit-${{ matrix.python-version }}.xml
+            coverage-${{ matrix.python-version }}.xml
+            htmlcov-${{ matrix.python-version }}/
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@ab904c41d05db2b8f63f213e12453cc63707e352c  # v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage-${{ matrix.python-version }}.xml
+          flags: py${{ matrix.python-version }}
+          name: Python ${{ matrix.python-version }}
+          fail_ci_if_error: false
+
+  # Code quality checks
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: setup
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: '3.12'
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Restore dependency cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .venv
+            ~/.cache/uv
+          key: py-deps-${{ runner.os }}-${{ needs.setup.outputs.uv-hash }}
+          restore-keys: |
+            py-deps-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: |
+          uv sync --no-interaction --all-extras
+
+      - name: Type checking with MyPy
+        if: ${{ inputs.run-mypy }}
+        run: |
+          echo "🔍 Running strict type checking..."
+          uv run mypy ${{ inputs.source-directory }} \
+            --config-file=pyproject.toml \
+            --cache-dir=${{ env.MYPY_CACHE_DIR }} \
+            ${{ inputs.mypy-strict && '--strict' || '' }}
+
+      - name: Code formatting validation
+        if: ${{ inputs.run-ruff }}
+        run: |
+          echo "🧹 Validating code formatting..."
+          uv run ruff format --check
+
+      - name: Linting with enhanced rules
+        if: ${{ inputs.run-ruff }}
+        run: |
+          echo "🔧 Running enhanced linting..."
+          uv run ruff check . --config=pyproject.toml
+
+  # CI success gate
+  ci-success:
+    name: CI Success Gate
+    runs-on: ubuntu-latest
+    needs: [setup, test, quality]
+    if: always()
+
+    steps:
+      - name: Validate CI Results
+        run: |
+          if [[ "${{ needs.setup.result }}" == "success" && \
+                "${{ needs.test.result }}" == "success" && \
+                "${{ needs.quality.result }}" == "success" ]]; then
+            echo "✅ CI Pipeline - All Checks Passed"
+            echo "🎯 Code quality validated across Python ${{ inputs.python-versions }}"
+            echo "🔒 Coverage threshold: ${{ inputs.coverage-threshold }}%"
+            echo "✅ Ready for deployment"
+          else
+            echo "❌ CI Pipeline Failed"
+            echo "setup: ${{ needs.setup.result }}"
+            echo "test: ${{ needs.test.result }}"
+            echo "quality: ${{ needs.quality.result }}"
+            exit 1
+          fi

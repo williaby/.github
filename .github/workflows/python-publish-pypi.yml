@@ -1,0 +1,227 @@
+# Python PyPI Publishing - Reusable Workflow
+# Publishes to PyPI using OIDC Trusted Publishing (no secrets needed!)
+#
+# OIDC Setup Instructions:
+# 1. Go to https://pypi.org/manage/account/publishing/
+# 2. Add GitHub Actions as Trusted Publisher:
+#    - PyPI Project Name: your-package-name
+#    - Owner: your-org
+#    - Repository: your-repo-name
+#    - Workflow: publish.yml (or your workflow name)
+#    - Environment: (leave blank or use 'release')
+# 3. For TestPyPI: https://test.pypi.org/manage/account/publishing/
+#
+# Usage from downstream repos:
+#   jobs:
+#     publish:
+#       uses: williaby/.github/.github/workflows/python-publish-pypi.yml@main
+#       with:
+#         package-name: 'my-package'
+#       permissions:
+#         id-token: write
+#         contents: read
+
+name: Publish to PyPI (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      package-name:
+        description: 'PyPI package name (for summary display only)'
+        type: string
+        required: false
+        default: 'your-package'
+
+      use-testpypi:
+        description: 'Publish to TestPyPI instead of PyPI'
+        type: boolean
+        required: false
+        default: false
+
+      python-version:
+        description: 'Python version for building'
+        type: string
+        required: false
+        default: '3.12'
+
+      run-security-checks:
+        description: 'Run security checks before publishing'
+        type: boolean
+        required: false
+        default: true
+
+      source-directory:
+        description: 'Source directory for security scans'
+        type: string
+        required: false
+        default: 'src'
+
+permissions:
+  contents: read
+  id-token: write  # Required for OIDC
+
+jobs:
+  build:
+    name: Build Distribution Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Run security checks
+        if: ${{ inputs.run-security-checks }}
+        run: |
+          echo "🔒 Running pre-publish security checks..."
+
+          # Install security tools
+          pip install safety bandit
+
+          # Check for known vulnerabilities in dependencies
+          echo "📦 Checking dependencies for vulnerabilities..."
+          safety check || echo "⚠️  Safety check found issues - review before publishing"
+
+          # Scan source code for security issues
+          echo "🔍 Scanning source code..."
+          bandit -r ${{ inputs.source-directory }} -ll || echo "⚠️  Bandit found issues - review before publishing"
+
+      - name: Build distribution packages
+        run: |
+          uv build
+          echo "📦 Built packages:"
+          ls -lh dist/
+
+      - name: Verify package metadata
+        run: |
+          pip install twine==6.2.0
+          twine check dist/*
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: python-package-distributions
+          path: dist/
+          retention-days: 5
+          if-no-files-found: error
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    if: ${{ !inputs.use-testpypi }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Verify artifacts
+        run: |
+          echo "📦 Packages to publish to PyPI:"
+          ls -lh dist/
+
+          echo ""
+          echo "🔒 Using OIDC Trusted Publishing (no secrets needed)"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e  # v1.13.0
+        with:
+          print-hash: true
+          verbose: true
+
+      - name: Publication summary
+        run: |
+          echo "## 🎉 Published to PyPI!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Project**: https://pypi.org/project/${{ inputs.package-name }}/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Install**: \`pip install ${{ inputs.package-name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔒 Security" >> $GITHUB_STEP_SUMMARY
+          echo "- Published using OIDC Trusted Publishing" >> $GITHUB_STEP_SUMMARY
+          echo "- No API tokens or passwords used" >> $GITHUB_STEP_SUMMARY
+          echo "- Full audit trail at PyPI" >> $GITHUB_STEP_SUMMARY
+
+  publish-to-testpypi:
+    name: Publish to TestPyPI
+    if: ${{ inputs.use-testpypi }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Verify artifacts
+        run: |
+          echo "📦 Test packages to publish to TestPyPI:"
+          ls -lh dist/
+
+          echo ""
+          echo "🔒 Using OIDC Trusted Publishing (no secrets needed)"
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e  # v1.13.0
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          print-hash: true
+          verbose: true
+
+      - name: Publication summary
+        run: |
+          echo "## 🧪 Published to TestPyPI!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Project**: https://test.pypi.org/project/${{ inputs.package-name }}/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Install**:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "pip install --index-url https://test.pypi.org/simple/ ${{ inputs.package-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔒 Security" >> $GITHUB_STEP_SUMMARY
+          echo "- Published using OIDC Trusted Publishing" >> $GITHUB_STEP_SUMMARY
+          echo "- No API tokens or passwords used" >> $GITHUB_STEP_SUMMARY
+          echo "- Full audit trail at TestPyPI" >> $GITHUB_STEP_SUMMARY
