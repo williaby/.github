@@ -1,6 +1,6 @@
 # Workflow Templates
 
-This directory contains reusable GitHub Actions workflow templates for the williaby organization. These templates provide standardized CI/CD workflows for Python projects and can be easily added to any repository in the organization.
+This directory contains reusable GitHub Actions workflow templates for the ByronWilliamsCPA organization. These templates provide standardized CI/CD workflows for Python projects and can be easily added to any repository in the organization.
 
 ## Available Templates
 
@@ -213,7 +213,7 @@ Different templates require different secrets:
 
 These templates are maintained centrally in the organization's `.github` repository. To suggest improvements:
 
-1. Open an issue in `williaby/.github`
+1. Open an issue in `ByronWilliamsCPA/.github`
 2. Describe the enhancement or fix needed
 3. Include example use case if applicable
 

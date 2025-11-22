@@ -29,7 +29,7 @@ permissions:
 jobs:
   scorecard:
     name: Scorecard Analysis
-    uses: williaby/.github/.github/workflows/python-scorecard.yml@main
+    uses: ByronWilliamsCPA/.github/.github/workflows/python-scorecard.yml@main
     with:
       publish-results: true
       upload-sarif: true

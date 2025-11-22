@@ -22,7 +22,7 @@
 #
 #     provenance:
 #       needs: build
-#       uses: williaby/.github/.github/workflows/python-slsa.yml@main
+#       uses: ByronWilliamsCPA/.github/.github/workflows/python-slsa.yml@main
 #       with:
 #         base64-subjects: ${{ needs.build.outputs.hashes }}
 #       permissions:
