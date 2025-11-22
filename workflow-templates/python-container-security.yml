@@ -1,0 +1,53 @@
+# Python Project - Container Security
+# Comprehensive container security scanning
+#
+# This workflow:
+#   - Scans container images with Trivy
+#   - Lints Dockerfiles with Hadolint
+#   - Generates container SBOM (optional)
+#   - Uploads SARIF to GitHub Security tab
+#
+# Triggered by:
+#   - Push to main branch
+#   - Pull requests to main branch
+#   - Changes to Dockerfile or container-related files
+
+name: Container Security
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  container-security:
+    name: Container Security Scan
+    uses: williaby/.github/.github/workflows/python-container-security.yml@main
+    with:
+      dockerfile-path: './Dockerfile'
+      build-image: true
+      image-tag: 'security-scan:latest'
+      severity-threshold: 'CRITICAL,HIGH'
+      fail-on-vulnerabilities: true
+      run-hadolint: true
+      hadolint-failure-threshold: 'error'
+      generate-sbom: true
+      upload-sarif: true
+    permissions:
+      contents: read
+      security-events: write

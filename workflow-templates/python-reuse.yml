@@ -1,0 +1,32 @@
+# Python Project - REUSE Compliance
+# Validates FSFE REUSE 3.0 specification compliance
+#
+# This workflow:
+#   - Checks REUSE compliance for all files
+#   - Verifies license headers and files
+#   - Optionally generates SPDX SBOM
+#
+# Triggered by:
+#   - Push to main branch
+#   - Pull requests to main branch
+
+name: REUSE Compliance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  reuse:
+    name: REUSE Compliance Check
+    uses: williaby/.github/.github/workflows/python-reuse.yml@main
+    with:
+      generate-spdx: true
+      fail-on-missing: true

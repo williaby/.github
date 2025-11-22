@@ -1,0 +1,38 @@
+# Python Project - Compatibility Matrix
+# Tests across multiple Python versions and operating systems
+#
+# This workflow:
+#   - Runs tests across Python 3.10-3.13
+#   - Optionally tests on Windows and macOS
+#   - Generates coverage reports per matrix combination
+#
+# Triggered by:
+#   - Push to main branch
+#   - Pull requests to main branch
+
+name: Python Compatibility
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: Compatibility Matrix
+    uses: williaby/.github/.github/workflows/python-compatibility.yml@main
+    with:
+      python-versions: '["3.10", "3.11", "3.12", "3.13"]'
+      operating-systems: '["ubuntu-latest"]'
+      include-windows: false
+      include-macos: false
+      source-directory: 'src'
+      test-command: 'pytest -v'
+      coverage-report: true
+      fail-fast: false

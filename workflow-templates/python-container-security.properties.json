@@ -1,0 +1,15 @@
+{
+  "name": "Python Container Security",
+  "description": "Container security scanning with Trivy vulnerability detection and Hadolint Dockerfile linting. Includes SBOM generation and SARIF upload to GitHub Security tab.",
+  "iconName": "container",
+  "categories": [
+    "Python",
+    "Security",
+    "Container",
+    "Docker"
+  ],
+  "filePatterns": [
+    "Dockerfile.*$",
+    "docker-compose.*\\.yml$"
+  ]
+}

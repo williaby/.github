@@ -1,0 +1,450 @@
+# ============================================================================
+# Reusable PR Validation Workflow
+# ============================================================================
+# Comprehensive pull request validation ensuring code quality before merge
+#
+# Usage from downstream repos:
+#   jobs:
+#     pr-validation:
+#       uses: williaby/.github/.github/workflows/python-pr-validation.yml@main
+#       with:
+#         python-version: '3.12'
+#         require-tests: true
+#
+# Features:
+#   - PR title and description validation
+#   - Conventional commit checking
+#   - Code formatting verification
+#   - Linting and type checking
+#   - Test execution
+#   - Breaking change detection
+#   - Size labeling
+# ============================================================================
+
+name: PR Validation (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        type: string
+        required: false
+        default: '3.12'
+
+      source-directory:
+        description: 'Source code directory'
+        type: string
+        required: false
+        default: 'src'
+
+      test-directory:
+        description: 'Test directory'
+        type: string
+        required: false
+        default: 'tests'
+
+      require-tests:
+        description: 'Require tests to pass'
+        type: boolean
+        required: false
+        default: true
+
+      require-conventional-commits:
+        description: 'Require conventional commit format in PR title'
+        type: boolean
+        required: false
+        default: true
+
+      require-description:
+        description: 'Require PR description'
+        type: boolean
+        required: false
+        default: true
+
+      min-description-length:
+        description: 'Minimum PR description length'
+        type: number
+        required: false
+        default: 50
+
+      check-breaking-changes:
+        description: 'Check for potential breaking changes'
+        type: boolean
+        required: false
+        default: true
+
+      add-size-labels:
+        description: 'Add size labels based on changes'
+        type: boolean
+        required: false
+        default: true
+
+      coverage-threshold:
+        description: 'Minimum code coverage percentage'
+        type: number
+        required: false
+        default: 80
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # PR metadata validation
+  pr-metadata:
+    name: PR Metadata Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      title-valid: ${{ steps.validate-title.outputs.valid }}
+      description-valid: ${{ steps.validate-description.outputs.valid }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Validate PR title (Conventional Commits)
+        id: validate-title
+        if: ${{ inputs.require-conventional-commits }}
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          echo "PR Title: $PR_TITLE"
+
+          # Conventional commit regex
+          PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?(!)?: .+"
+
+          if [[ "$PR_TITLE" =~ $PATTERN ]]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "PR title follows conventional commit format"
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "::error::PR title does not follow conventional commit format"
+            echo ""
+            echo "Expected format: <type>(<scope>): <description>"
+            echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+            echo "Example: feat(auth): add OAuth2 support"
+            exit 1
+          fi
+
+      - name: Validate PR description
+        id: validate-description
+        if: ${{ inputs.require-description }}
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          MIN_LENGTH=${{ inputs.min-description-length }}
+
+          if [ -z "$PR_BODY" ]; then
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "::error::PR description is required"
+            exit 1
+          fi
+
+          # Remove whitespace and check length
+          CLEAN_BODY=$(echo "$PR_BODY" | tr -d '[:space:]')
+          BODY_LENGTH=${#CLEAN_BODY}
+
+          if [ "$BODY_LENGTH" -lt "$MIN_LENGTH" ]; then
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "::error::PR description must be at least $MIN_LENGTH characters (current: $BODY_LENGTH)"
+            exit 1
+          fi
+
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "PR description is valid (length: $BODY_LENGTH)"
+
+      - name: PR Metadata Summary
+        if: always()
+        run: |
+          echo "## PR Metadata Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.require-conventional-commits }}" == "true" ]; then
+            if [ "${{ steps.validate-title.outputs.valid }}" == "true" ]; then
+              echo "- Title: Valid (Conventional Commits)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- Title: Invalid" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          if [ "${{ inputs.require-description }}" == "true" ]; then
+            if [ "${{ steps.validate-description.outputs.valid }}" == "true" ]; then
+              echo "- Description: Valid" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- Description: Invalid or too short" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+  # Code quality checks
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Check formatting (Ruff)
+        run: |
+          echo "Checking code formatting..."
+          uv run ruff format --check ${{ inputs.source-directory }}/ ${{ inputs.test-directory }}/ || {
+            echo "::error::Code formatting issues detected. Run 'ruff format' to fix."
+            exit 1
+          }
+
+      - name: Run linter (Ruff)
+        run: |
+          echo "Running linter..."
+          uv run ruff check ${{ inputs.source-directory }}/ ${{ inputs.test-directory }}/ --output-format=github
+
+      - name: Run type checker (BasedPyright)
+        run: |
+          echo "Running type checker..."
+          uv run basedpyright ${{ inputs.source-directory }}/ || {
+            echo "::warning::Type checking found issues"
+          }
+
+      - name: Code Quality Summary
+        if: always()
+        run: |
+          echo "## Code Quality Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Formatting: Checked with Ruff" >> $GITHUB_STEP_SUMMARY
+          echo "- Linting: Checked with Ruff" >> $GITHUB_STEP_SUMMARY
+          echo "- Type Checking: Checked with BasedPyright" >> $GITHUB_STEP_SUMMARY
+
+  # Test execution
+  tests:
+    name: Test Suite
+    if: ${{ inputs.require-tests }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov=${{ inputs.source-directory }} \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=${{ inputs.coverage-threshold }} \
+            -v
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: pr-coverage
+          path: coverage.xml
+          retention-days: 7
+
+  # Breaking change detection
+  breaking-changes:
+    name: Breaking Change Detection
+    if: ${{ inputs.check-breaking-changes }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Check for breaking change indicators
+        id: breaking
+        run: |
+          # Check PR title for breaking change indicator
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if [[ "$PR_TITLE" =~ "!" ]] || [[ "$PR_TITLE" =~ "BREAKING" ]]; then
+            echo "has_breaking=true" >> $GITHUB_OUTPUT
+            echo "::warning::PR indicates breaking changes"
+          else
+            echo "has_breaking=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Check for potentially breaking file changes
+          BREAKING_PATTERNS=(
+            "setup.py"
+            "pyproject.toml"
+            "__init__.py"
+            "api/"
+            "public/"
+          )
+
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > changed_files.txt
+
+          BREAKING_FILES=""
+          for pattern in "${BREAKING_PATTERNS[@]}"; do
+            if grep -q "$pattern" changed_files.txt; then
+              BREAKING_FILES="$BREAKING_FILES $pattern"
+            fi
+          done
+
+          if [ -n "$BREAKING_FILES" ]; then
+            echo "::notice::Potentially breaking files changed:$BREAKING_FILES"
+            echo "breaking_files=$BREAKING_FILES" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Breaking Change Summary
+        if: always()
+        run: |
+          echo "## Breaking Change Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.breaking.outputs.has_breaking }}" == "true" ]; then
+            echo "**Breaking change indicator found in PR title**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -n "${{ steps.breaking.outputs.breaking_files }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Potentially breaking files modified:**" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.breaking.outputs.breaking_files }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # PR size labeling
+  size-labeling:
+    name: PR Size Labeling
+    if: ${{ inputs.add-size-labels }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Calculate PR size and add labels
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const { additions, deletions } = context.payload.pull_request;
+            const totalChanges = additions + deletions;
+
+            // Define size thresholds
+            const sizes = [
+              { label: 'size/XS', max: 10 },
+              { label: 'size/S', max: 50 },
+              { label: 'size/M', max: 200 },
+              { label: 'size/L', max: 500 },
+              { label: 'size/XL', max: Infinity }
+            ];
+
+            // Determine size label
+            const sizeLabel = sizes.find(s => totalChanges <= s.max).label;
+
+            // Remove existing size labels
+            const existingLabels = context.payload.pull_request.labels
+              .filter(l => l.name.startsWith('size/'))
+              .map(l => l.name);
+
+            for (const label of existingLabels) {
+              if (label !== sizeLabel) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    name: label
+                  });
+                } catch (e) {
+                  // Label might not exist
+                }
+              }
+            }
+
+            // Add new size label
+            if (!existingLabels.includes(sizeLabel)) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: [sizeLabel]
+              });
+            }
+
+            console.log(`PR size: ${totalChanges} changes (+${additions}/-${deletions}) - ${sizeLabel}`);
+
+  # Validation summary
+  validation-summary:
+    name: Validation Summary
+    needs: [pr-metadata, code-quality, tests, breaking-changes, size-labeling]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate validation summary
+        run: |
+          echo "## PR Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| PR Metadata | ${{ needs.pr-metadata.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ needs.tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Breaking Changes | ${{ needs.breaking-changes.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Size Labeling | ${{ needs.size-labeling.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check validation result
+        run: |
+          # Check critical jobs
+          if [ "${{ needs.pr-metadata.result }}" == "failure" ] || \
+             [ "${{ needs.code-quality.result }}" == "failure" ] || \
+             [ "${{ needs.tests.result }}" == "failure" ]; then
+            echo "::error::PR validation failed"
+            exit 1
+          fi
+
+          echo "PR validation passed"

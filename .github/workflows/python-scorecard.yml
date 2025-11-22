@@ -1,0 +1,119 @@
+# ============================================================================
+# Reusable OpenSSF Scorecard Workflow
+# ============================================================================
+# Evaluates repository security health using OpenSSF Scorecard
+#
+# Usage from downstream repos:
+#   jobs:
+#     scorecard:
+#       uses: williaby/.github/.github/workflows/python-scorecard.yml@main
+#       permissions:
+#         security-events: write
+#         id-token: write
+#         contents: read
+#         actions: read
+#
+# Features:
+#   - OpenSSF Scorecard security analysis
+#   - SARIF upload to GitHub Security tab
+#   - Supply chain security assessment
+#   - Branch protection verification
+# ============================================================================
+
+name: OpenSSF Scorecard (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      publish-results:
+        description: 'Publish results to OpenSSF REST API'
+        type: boolean
+        required: false
+        default: true
+
+      upload-sarif:
+        description: 'Upload SARIF results to GitHub Security tab'
+        type: boolean
+        required: false
+        default: true
+
+      artifact-retention-days:
+        description: 'Days to retain scorecard artifacts'
+        type: number
+        required: false
+        default: 5
+
+permissions:
+  # Needed to upload the results to code-scanning dashboard
+  security-events: write
+  # Needed to publish results and get a badge
+  id-token: write
+  # Required for all workflows
+  contents: read
+  # Required for workflow_run event
+  actions: read
+
+jobs:
+  scorecard:
+    name: OpenSSF Scorecard Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46  # v2.4.0
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          # Publish results to OpenSSF REST API for badge generation
+          publish_results: ${{ inputs.publish-results }}
+
+      - name: Upload Scorecard SARIF to Security tab
+        if: ${{ inputs.upload-sarif }}
+        uses: github/codeql-action/upload-sarif@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.27.5
+        with:
+          sarif_file: scorecard-results.sarif
+          category: scorecard
+
+      - name: Upload Scorecard artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: scorecard-results
+          path: scorecard-results.sarif
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+      - name: Scorecard Summary
+        if: always()
+        run: |
+          echo "## OpenSSF Scorecard Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Scorecard evaluates the security posture of your repository." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Checks Performed" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch protection rules" >> $GITHUB_STEP_SUMMARY
+          echo "- CI tests presence" >> $GITHUB_STEP_SUMMARY
+          echo "- Code review practices" >> $GITHUB_STEP_SUMMARY
+          echo "- Dependency pinning" >> $GITHUB_STEP_SUMMARY
+          echo "- Fuzzing presence" >> $GITHUB_STEP_SUMMARY
+          echo "- License detection" >> $GITHUB_STEP_SUMMARY
+          echo "- Maintained status" >> $GITHUB_STEP_SUMMARY
+          echo "- Packaging security" >> $GITHUB_STEP_SUMMARY
+          echo "- SAST tool usage" >> $GITHUB_STEP_SUMMARY
+          echo "- Security policy presence" >> $GITHUB_STEP_SUMMARY
+          echo "- Signed releases" >> $GITHUB_STEP_SUMMARY
+          echo "- Token permissions" >> $GITHUB_STEP_SUMMARY
+          echo "- Vulnerability disclosure" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.publish-results }}" == "true" ]; then
+            echo "Results published to [OpenSSF Scorecard](https://securityscorecards.dev)" >> $GITHUB_STEP_SUMMARY
+          fi

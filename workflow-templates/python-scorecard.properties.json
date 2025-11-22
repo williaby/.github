@@ -1,0 +1,14 @@
+{
+  "name": "Python OpenSSF Scorecard",
+  "description": "Evaluates repository security health using OpenSSF Scorecard. Checks branch protection, CI/CD security, dependency management, and security practices. Results uploaded to GitHub Security tab.",
+  "iconName": "shield-check",
+  "categories": [
+    "Python",
+    "Security",
+    "Supply Chain"
+  ],
+  "filePatterns": [
+    "pyproject.toml$",
+    ".*\\.py$"
+  ]
+}

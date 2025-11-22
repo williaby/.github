@@ -1,0 +1,80 @@
+# Python Project - SLSA Provenance
+# Generates SLSA Level 3 provenance attestations for releases
+#
+# This workflow:
+#   - Generates SLSA Level 3 provenance
+#   - Attaches provenance to GitHub releases
+#   - Provides supply chain security attestations
+#
+# Triggered by:
+#   - Release creation
+#
+# Prerequisites:
+#   - Build job must output base64-encoded hashes
+#   - Artifacts must be uploaded before calling this workflow
+
+name: SLSA Provenance
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  actions: read
+  id-token: write
+  contents: write
+
+jobs:
+  # Build job that produces artifacts and hashes
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: '3.12'
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build package
+        run: uv build
+
+      - name: Generate artifact hashes
+        id: hash
+        working-directory: dist
+        run: |
+          echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: dist
+          path: dist/
+
+  # Generate SLSA provenance
+  provenance:
+    name: Generate Provenance
+    needs: build
+    uses: williaby/.github/.github/workflows/python-slsa.yml@main
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes }}
+      upload-assets: true
+    permissions:
+      actions: read
+      id-token: write
+      contents: write

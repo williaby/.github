@@ -1,0 +1,311 @@
+# ============================================================================
+# Reusable Mutation Testing Workflow
+# ============================================================================
+# Validates test effectiveness using mutation testing with mutmut
+#
+# Usage from downstream repos:
+#   jobs:
+#     mutation:
+#       uses: williaby/.github/.github/workflows/python-mutation.yml@main
+#       with:
+#         source-directory: 'src'
+#         mutation-threshold: 80
+#
+# Features:
+#   - Mutation testing with mutmut
+#   - Configurable mutation score threshold
+#   - HTML report generation
+#   - Optional PR comment posting
+#   - Recommended for weekly scheduled runs
+# ============================================================================
+
+name: Mutation Testing (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: 'Python version to use'
+        type: string
+        required: false
+        default: '3.12'
+
+      source-directory:
+        description: 'Source code directory to mutate'
+        type: string
+        required: false
+        default: 'src'
+
+      test-directory:
+        description: 'Test directory'
+        type: string
+        required: false
+        default: 'tests'
+
+      mutation-threshold:
+        description: 'Minimum mutation score percentage (0-100)'
+        type: number
+        required: false
+        default: 80
+
+      fail-under-threshold:
+        description: 'Fail workflow if mutation score is below threshold'
+        type: boolean
+        required: false
+        default: false
+
+      post-pr-comment:
+        description: 'Post mutation results as PR comment'
+        type: boolean
+        required: false
+        default: true
+
+      timeout-minutes:
+        description: 'Timeout for mutation testing (can be long-running)'
+        type: number
+        required: false
+        default: 60
+
+      artifact-retention-days:
+        description: 'Days to retain mutation reports'
+        type: number
+        required: false
+        default: 14
+
+    outputs:
+      mutation-score:
+        description: 'The achieved mutation score percentage'
+        value: ${{ jobs.mutation-testing.outputs.score }}
+      passed:
+        description: 'Whether the mutation threshold was met'
+        value: ${{ jobs.mutation-testing.outputs.passed }}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  mutation-testing:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    outputs:
+      score: ${{ steps.analyze.outputs.score }}
+      passed: ${{ steps.analyze.outputs.passed }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras
+          uv pip install mutmut
+
+      - name: Run mutation testing
+        id: mutmut
+        run: |
+          echo "Starting mutation testing on ${{ inputs.source-directory }}..."
+
+          # Run mutmut with configurable paths
+          uv run mutmut run \
+            --paths-to-mutate=${{ inputs.source-directory }} \
+            --tests-dir=${{ inputs.test-directory }} \
+            --no-progress \
+            || true
+
+          # Generate reports
+          uv run mutmut results > mutmut-results.txt || true
+          uv run mutmut html || true
+
+      - name: Analyze mutation results
+        id: analyze
+        run: |
+          echo "Analyzing mutation test results..."
+
+          # Parse mutmut results
+          python3 << 'EOF'
+          import json
+          import os
+          import sys
+
+          # Try to parse mutmut results
+          try:
+              import subprocess
+              result = subprocess.run(
+                  ['uv', 'run', 'mutmut', 'results', '--json'],
+                  capture_output=True, text=True
+              )
+
+              if result.returncode == 0 and result.stdout.strip():
+                  data = json.loads(result.stdout)
+                  killed = data.get('killed', 0)
+                  survived = data.get('survived', 0)
+                  timeout = data.get('timeout', 0)
+                  suspicious = data.get('suspicious', 0)
+                  skipped = data.get('skipped', 0)
+                  total = killed + survived + timeout + suspicious
+
+                  if total > 0:
+                      score = round((killed / total) * 100, 2)
+                  else:
+                      score = 100.0
+              else:
+                  # Fallback: try to parse text output
+                  with open('mutmut-results.txt', 'r') as f:
+                      content = f.read()
+
+                  # Simple parsing
+                  killed = content.count('killed')
+                  survived = content.count('survived')
+                  total = killed + survived
+
+                  if total > 0:
+                      score = round((killed / total) * 100, 2)
+                  else:
+                      score = 100.0
+                      killed = 0
+                      survived = 0
+
+          except Exception as e:
+              print(f"Error parsing results: {e}")
+              score = 0.0
+              killed = 0
+              survived = 0
+              total = 0
+
+          threshold = float(os.environ.get('THRESHOLD', '80'))
+          passed = score >= threshold
+
+          # Output for GitHub Actions
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"score={score}\n")
+              f.write(f"passed={'true' if passed else 'false'}\n")
+              f.write(f"killed={killed}\n")
+              f.write(f"survived={survived}\n")
+
+          # Output for step summary
+          print(f"Mutation Score: {score}%")
+          print(f"Threshold: {threshold}%")
+          print(f"Passed: {passed}")
+          print(f"Killed: {killed}, Survived: {survived}")
+
+          if not passed and os.environ.get('FAIL_UNDER', 'false') == 'true':
+              sys.exit(1)
+          EOF
+        env:
+          THRESHOLD: ${{ inputs.mutation-threshold }}
+          FAIL_UNDER: ${{ inputs.fail-under-threshold }}
+
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: mutation-reports
+          path: |
+            mutmut-results.txt
+            html/
+            .mutmut-cache
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+      - name: Post PR comment
+        if: ${{ inputs.post-pr-comment && github.event_name == 'pull_request' }}
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const score = '${{ steps.analyze.outputs.score }}';
+            const passed = '${{ steps.analyze.outputs.passed }}' === 'true';
+            const threshold = '${{ inputs.mutation-threshold }}';
+
+            const emoji = passed ? '' : '';
+            const status = passed ? 'Passed' : 'Below Threshold';
+
+            const body = `## ${emoji} Mutation Testing Results
+
+            | Metric | Value |
+            |--------|-------|
+            | **Mutation Score** | ${score}% |
+            | **Threshold** | ${threshold}% |
+            | **Status** | ${status} |
+
+            ${!passed ? `
+            > **Note:** The mutation score is below the threshold. This indicates that some mutants survived, meaning tests may not be catching all potential bugs.
+
+            **Recommendations:**
+            - Review the mutation report artifact for survived mutants
+            - Add tests for uncovered code paths
+            - Consider strengthening existing assertions
+            ` : ''}
+
+            <details>
+            <summary>What is Mutation Testing?</summary>
+
+            Mutation testing introduces small changes (mutations) to your code and checks if your tests detect them. A high mutation score indicates your tests are effective at catching bugs.
+
+            - **Killed mutants:** Tests detected the change
+            - **Survived mutants:** Tests did not detect the change (potential gap)
+            </details>
+            `;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Mutation Testing Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+      - name: Mutation Testing Summary
+        if: always()
+        run: |
+          echo "## Mutation Testing Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Mutation Score** | ${{ steps.analyze.outputs.score }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Threshold** | ${{ inputs.mutation-threshold }}% |" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.analyze.outputs.passed }}" == "true" ]; then
+            echo "| **Status** | Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| **Status** | Below Threshold |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### About Mutation Testing" >> $GITHUB_STEP_SUMMARY
+          echo "Mutation testing validates test effectiveness by introducing code changes and verifying tests catch them." >> $GITHUB_STEP_SUMMARY

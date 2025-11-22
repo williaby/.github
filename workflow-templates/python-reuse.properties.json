@@ -1,0 +1,15 @@
+{
+  "name": "Python REUSE Compliance",
+  "description": "Validates FSFE REUSE 3.0 specification compliance for license management. Checks that all files have proper SPDX license identifiers and copyright headers.",
+  "iconName": "law",
+  "categories": [
+    "Python",
+    "Compliance",
+    "License"
+  ],
+  "filePatterns": [
+    "LICENSE.*$",
+    "COPYING$",
+    ".*\\.py$"
+  ]
+}

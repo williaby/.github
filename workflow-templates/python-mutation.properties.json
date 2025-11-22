@@ -1,0 +1,14 @@
+{
+  "name": "Python Mutation Testing",
+  "description": "Validates test effectiveness using mutation testing with mutmut. Introduces code mutations and verifies tests catch them. Recommended for weekly scheduled runs.",
+  "iconName": "beaker",
+  "categories": [
+    "Python",
+    "Testing",
+    "Quality"
+  ],
+  "filePatterns": [
+    "pyproject.toml$",
+    "tests/.*\\.py$"
+  ]
+}

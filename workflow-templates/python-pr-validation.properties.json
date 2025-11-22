@@ -1,0 +1,14 @@
+{
+  "name": "Python PR Validation",
+  "description": "Comprehensive pull request validation including conventional commit checking, code quality verification, test execution, breaking change detection, and automatic size labeling.",
+  "iconName": "git-pull-request",
+  "categories": [
+    "Python",
+    "Quality",
+    "Pull Request"
+  ],
+  "filePatterns": [
+    "pyproject.toml$",
+    ".*\\.py$"
+  ]
+}

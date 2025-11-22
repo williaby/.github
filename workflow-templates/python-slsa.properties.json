@@ -1,0 +1,15 @@
+{
+  "name": "Python SLSA Provenance",
+  "description": "Generates SLSA Level 3 provenance attestations for Python package releases. Provides supply chain security through cryptographic attestations of build provenance.",
+  "iconName": "verified",
+  "categories": [
+    "Python",
+    "Security",
+    "Supply Chain",
+    "Release"
+  ],
+  "filePatterns": [
+    "pyproject.toml$",
+    "setup.py$"
+  ]
+}

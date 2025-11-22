@@ -1,0 +1,46 @@
+# Python Project - Mutation Testing
+# Validates test effectiveness using mutation testing
+#
+# This workflow:
+#   - Runs mutation testing with mutmut
+#   - Generates mutation score reports
+#   - Posts results as PR comments (optional)
+#
+# Triggered by:
+#   - Weekly schedule (recommended)
+#   - Pull requests (optional, can be slow)
+#   - Manual dispatch
+
+name: Mutation Testing
+
+on:
+  schedule:
+    # Run weekly on Saturday at 02:00 UTC
+    - cron: '0 2 * * 6'
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: 'Mutation score threshold (0-100)'
+        required: false
+        default: '80'
+        type: string
+  # Uncomment to run on PRs (can be slow for large codebases)
+  # pull_request:
+  #   branches:
+  #     - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  mutation:
+    name: Mutation Testing
+    uses: williaby/.github/.github/workflows/python-mutation.yml@main
+    with:
+      source-directory: 'src'
+      test-directory: 'tests'
+      mutation-threshold: ${{ github.event.inputs.threshold || 80 }}
+      fail-under-threshold: false
+      post-pr-comment: true
+      timeout-minutes: 60

@@ -1,0 +1,17 @@
+{
+  "name": "Python SBOM",
+  "description": "Software Bill of Materials generation using CycloneDX with vulnerability scanning via Trivy. Includes license compliance checking and SARIF upload to GitHub Security tab.",
+  "iconName": "package",
+  "categories": [
+    "Python",
+    "Security",
+    "Supply Chain",
+    "Compliance"
+  ],
+  "filePatterns": [
+    "pyproject.toml$",
+    "poetry.lock$",
+    "uv.lock$",
+    "requirements.*\\.txt$"
+  ]
+}

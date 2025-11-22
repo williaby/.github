@@ -1,0 +1,14 @@
+{
+  "name": "Python Compatibility Matrix",
+  "description": "Matrix testing across multiple Python versions (3.10-3.13) and operating systems (Linux, macOS, Windows). Ensures compatibility across different environments.",
+  "iconName": "versions",
+  "categories": [
+    "Python",
+    "Testing",
+    "Compatibility"
+  ],
+  "filePatterns": [
+    "pyproject.toml$",
+    ".*\\.py$"
+  ]
+}

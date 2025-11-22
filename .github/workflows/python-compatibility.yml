@@ -1,0 +1,211 @@
+# ============================================================================
+# Reusable Python Compatibility Matrix Workflow
+# ============================================================================
+# Matrix testing across Python versions and operating systems
+#
+# Usage from downstream repos:
+#   jobs:
+#     compatibility:
+#       uses: williaby/.github/.github/workflows/python-compatibility.yml@main
+#       with:
+#         python-versions: '["3.10", "3.11", "3.12", "3.13"]'
+#         operating-systems: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+#
+# Features:
+#   - Matrix testing across multiple Python versions
+#   - Cross-platform testing (Linux, macOS, Windows)
+#   - Configurable test commands
+#   - Artifact collection per matrix combination
+# ============================================================================
+
+name: Python Compatibility (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'JSON array of Python versions to test'
+        type: string
+        required: false
+        default: '["3.10", "3.11", "3.12", "3.13"]'
+
+      operating-systems:
+        description: 'JSON array of operating systems to test'
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
+
+      include-windows:
+        description: 'Include Windows in the matrix'
+        type: boolean
+        required: false
+        default: false
+
+      include-macos:
+        description: 'Include macOS in the matrix'
+        type: boolean
+        required: false
+        default: false
+
+      source-directory:
+        description: 'Source code directory'
+        type: string
+        required: false
+        default: 'src'
+
+      test-command:
+        description: 'Test command to run (uses uv run prefix)'
+        type: string
+        required: false
+        default: 'pytest -v'
+
+      coverage-report:
+        description: 'Generate coverage reports'
+        type: boolean
+        required: false
+        default: true
+
+      fail-fast:
+        description: 'Fail immediately on first matrix failure'
+        type: boolean
+        required: false
+        default: false
+
+      timeout-minutes:
+        description: 'Timeout for each matrix job'
+        type: number
+        required: false
+        default: 30
+
+    outputs:
+      matrix-result:
+        description: 'Overall matrix test result'
+        value: ${{ jobs.test-matrix.result }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Build dynamic matrix based on inputs
+  build-matrix:
+    name: Build Test Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: Build matrix configuration
+        id: set-matrix
+        run: |
+          # Start with the provided operating systems
+          OS_LIST='${{ inputs.operating-systems }}'
+
+          # Add additional platforms if requested
+          if [ "${{ inputs.include-windows }}" == "true" ]; then
+            OS_LIST=$(echo "$OS_LIST" | jq '. + ["windows-latest"] | unique')
+          fi
+
+          if [ "${{ inputs.include-macos }}" == "true" ]; then
+            OS_LIST=$(echo "$OS_LIST" | jq '. + ["macos-latest"] | unique')
+          fi
+
+          # Build the full matrix
+          MATRIX=$(jq -n \
+            --argjson python '${{ inputs.python-versions }}' \
+            --argjson os "$OS_LIST" \
+            '{python: $python, os: $os}')
+
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          echo "Generated matrix: $MATRIX"
+
+  test-matrix:
+    name: Test (Python ${{ matrix.python }}, ${{ matrix.os }})
+    needs: build-matrix
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    strategy:
+      fail-fast: ${{ inputs.fail-fast }}
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests
+        id: tests
+        run: |
+          echo "Running tests on Python ${{ matrix.python }} (${{ matrix.os }})..."
+
+          if [ "${{ inputs.coverage-report }}" == "true" ]; then
+            uv run ${{ inputs.test-command }} \
+              --cov=${{ inputs.source-directory }} \
+              --cov-report=xml:coverage-${{ matrix.python }}-${{ matrix.os }}.xml \
+              --cov-report=term-missing
+          else
+            uv run ${{ inputs.test-command }}
+          fi
+        shell: bash
+
+      - name: Upload coverage artifact
+        if: ${{ inputs.coverage-report && always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: coverage-${{ matrix.python }}-${{ matrix.os }}
+          path: coverage-*.xml
+          retention-days: 7
+
+  # Summary job
+  compatibility-summary:
+    name: Compatibility Summary
+    needs: [build-matrix, test-matrix]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate compatibility matrix summary
+        run: |
+          echo "## Python Compatibility Matrix Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          MATRIX='${{ needs.build-matrix.outputs.matrix }}'
+          PYTHON_VERSIONS=$(echo "$MATRIX" | jq -r '.python | join(", ")')
+          OS_LIST=$(echo "$MATRIX" | jq -r '.os | join(", ")')
+
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python Versions:** $PYTHON_VERSIONS" >> $GITHUB_STEP_SUMMARY
+          echo "- **Operating Systems:** $OS_LIST" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Results" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.test-matrix.result }}" == "success" ]; then
+            echo "**Status:** All matrix combinations passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.test-matrix.result }}" == "failure" ]; then
+            echo "**Status:** Some matrix combinations failed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status:** ${{ needs.test-matrix.result }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check matrix result
+        if: ${{ needs.test-matrix.result == 'failure' }}
+        run: |
+          echo "::error::Compatibility matrix tests failed"
+          exit 1

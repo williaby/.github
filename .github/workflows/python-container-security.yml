@@ -1,0 +1,291 @@
+# ============================================================================
+# Reusable Container Security Workflow
+# ============================================================================
+# Combines Trivy container image scanning with Hadolint Dockerfile linting
+#
+# Usage from downstream repos:
+#   jobs:
+#     container-security:
+#       uses: williaby/.github/.github/workflows/python-container-security.yml@main
+#       with:
+#         image-ref: 'myapp:latest'
+#         dockerfile-path: './Dockerfile'
+#
+# Features:
+#   - Trivy container image vulnerability scanning
+#   - Hadolint Dockerfile best practices linting
+#   - SARIF upload to GitHub Security tab
+#   - Configurable severity thresholds
+#   - Optional container SBOM generation
+# ============================================================================
+
+name: Container Security (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      # Image scanning configuration
+      image-ref:
+        description: 'Container image reference to scan (e.g., myapp:latest or ghcr.io/org/app:v1)'
+        type: string
+        required: false
+        default: ''
+
+      build-image:
+        description: 'Build image from Dockerfile before scanning'
+        type: boolean
+        required: false
+        default: true
+
+      dockerfile-path:
+        description: 'Path to Dockerfile'
+        type: string
+        required: false
+        default: './Dockerfile'
+
+      build-context:
+        description: 'Docker build context path'
+        type: string
+        required: false
+        default: '.'
+
+      image-tag:
+        description: 'Tag for built image (used when build-image is true)'
+        type: string
+        required: false
+        default: 'security-scan:latest'
+
+      # Scanning configuration
+      severity-threshold:
+        description: 'Minimum severity to report (CRITICAL, HIGH, MEDIUM, LOW)'
+        type: string
+        required: false
+        default: 'CRITICAL,HIGH'
+
+      fail-on-vulnerabilities:
+        description: 'Fail workflow if vulnerabilities found at threshold'
+        type: boolean
+        required: false
+        default: true
+
+      # Hadolint configuration
+      run-hadolint:
+        description: 'Run Hadolint Dockerfile linting'
+        type: boolean
+        required: false
+        default: true
+
+      hadolint-failure-threshold:
+        description: 'Hadolint failure threshold (error, warning, info, style, ignore, none)'
+        type: string
+        required: false
+        default: 'error'
+
+      # SBOM configuration
+      generate-sbom:
+        description: 'Generate container SBOM'
+        type: boolean
+        required: false
+        default: false
+
+      # Artifact configuration
+      upload-sarif:
+        description: 'Upload SARIF results to GitHub Security tab'
+        type: boolean
+        required: false
+        default: true
+
+      artifact-retention-days:
+        description: 'Days to retain security artifacts'
+        type: number
+        required: false
+        default: 30
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # Hadolint Dockerfile linting
+  hadolint:
+    name: Dockerfile Lint (Hadolint)
+    if: ${{ inputs.run-hadolint }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Check Dockerfile exists
+        id: check-dockerfile
+        run: |
+          if [ -f "${{ inputs.dockerfile-path }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::warning::Dockerfile not found at ${{ inputs.dockerfile-path }}"
+          fi
+
+      - name: Run Hadolint
+        if: steps.check-dockerfile.outputs.exists == 'true'
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf  # v3.1.0
+        with:
+          dockerfile: ${{ inputs.dockerfile-path }}
+          failure-threshold: ${{ inputs.hadolint-failure-threshold }}
+          format: sarif
+          output-file: hadolint-results.sarif
+
+      - name: Upload Hadolint SARIF
+        if: ${{ inputs.upload-sarif && steps.check-dockerfile.outputs.exists == 'true' }}
+        uses: github/codeql-action/upload-sarif@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.27.5
+        with:
+          sarif_file: hadolint-results.sarif
+          category: hadolint
+        continue-on-error: true
+
+      - name: Hadolint Summary
+        if: always() && steps.check-dockerfile.outputs.exists == 'true'
+        run: |
+          echo "## Hadolint Dockerfile Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Dockerfile:** \`${{ inputs.dockerfile-path }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Failure Threshold:** ${{ inputs.hadolint-failure-threshold }}" >> $GITHUB_STEP_SUMMARY
+
+  # Trivy container image scanning
+  trivy-scan:
+    name: Container Vulnerability Scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@91182cccc01eb5e619899d80e4e971d6181294a7  # v2.10.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        if: ${{ inputs.build-image }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Check Dockerfile exists
+        if: ${{ inputs.build-image }}
+        id: check-dockerfile
+        run: |
+          if [ -f "${{ inputs.dockerfile-path }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "::warning::Dockerfile not found at ${{ inputs.dockerfile-path }}, skipping build"
+          fi
+
+      - name: Build container image
+        if: ${{ inputs.build-image && steps.check-dockerfile.outputs.exists == 'true' }}
+        run: |
+          echo "Building container image..."
+          docker build \
+            -f ${{ inputs.dockerfile-path }} \
+            -t ${{ inputs.image-tag }} \
+            ${{ inputs.build-context }}
+
+      - name: Determine image to scan
+        id: image
+        run: |
+          if [ "${{ inputs.build-image }}" == "true" ] && [ "${{ steps.check-dockerfile.outputs.exists }}" == "true" ]; then
+            echo "ref=${{ inputs.image-tag }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ inputs.image-ref }}" ]; then
+            echo "ref=${{ inputs.image-ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=" >> $GITHUB_OUTPUT
+            echo "::warning::No image to scan"
+          fi
+
+      - name: Trivy vulnerability scan
+        if: steps.image.outputs.ref != ''
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # v0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: ${{ inputs.severity-threshold }}
+          exit-code: ${{ inputs.fail-on-vulnerabilities && '1' || '0' }}
+
+      - name: Trivy SARIF report
+        if: ${{ inputs.upload-sarif && steps.image.outputs.ref != '' }}
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # v0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'sarif'
+          output: 'trivy-container-results.sarif'
+
+      - name: Upload Trivy SARIF
+        if: ${{ inputs.upload-sarif && steps.image.outputs.ref != '' }}
+        uses: github/codeql-action/upload-sarif@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169  # v3.27.5
+        with:
+          sarif_file: trivy-container-results.sarif
+          category: trivy-container
+        continue-on-error: true
+
+      - name: Generate container SBOM
+        if: ${{ inputs.generate-sbom && steps.image.outputs.ref != '' }}
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8  # v0.33.1
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'cyclonedx'
+          output: 'container-sbom.json'
+
+      - name: Upload container security artifacts
+        if: always() && steps.image.outputs.ref != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: container-security-reports
+          path: |
+            trivy-container-results.sarif
+            container-sbom.json
+          retention-days: ${{ inputs.artifact-retention-days }}
+          if-no-files-found: ignore
+
+      - name: Container Security Summary
+        if: always()
+        run: |
+          echo "## Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "${{ steps.image.outputs.ref }}" ]; then
+            echo "**Image:** \`${{ steps.image.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "**Severity Threshold:** ${{ inputs.severity-threshold }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "${{ inputs.generate-sbom }}" == "true" ]; then
+              echo "Container SBOM generated (CycloneDX format)" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No container image was scanned." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # Summary job
+  security-summary:
+    name: Security Summary
+    needs: [hadolint, trivy-scan]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Overall security summary
+        run: |
+          echo "## Container Security Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Hadolint | ${{ needs.hadolint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy Scan | ${{ needs.trivy-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for failures
+        if: ${{ needs.hadolint.result == 'failure' || needs.trivy-scan.result == 'failure' }}
+        run: |
+          echo "::error::Container security checks failed"
+          exit 1
