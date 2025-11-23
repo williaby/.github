@@ -5,6 +5,10 @@
 *.swo
 *~
 
+# SonarQube/SonarLint
+.sonar/
+.sonarlint/
+
 # Qlty cache and tool-specific files (keep config)
 .qlty/logs/
 .qlty/out/
