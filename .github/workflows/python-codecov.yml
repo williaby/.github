@@ -147,15 +147,17 @@ jobs:
         if: always()
         env:
           GH_REPOSITORY: ${{ github.repository }}
+          COVERAGE_FILES: ${{ inputs.coverage-files }}
+          CODECOV_FLAGS: ${{ inputs.flags }}
         run: |
           echo "## Codecov Upload Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          FILE_COUNT=$(find coverage/ -name "${{ inputs.coverage-files }}" -type f | wc -l)
+          FILE_COUNT=$(find coverage/ -name "$COVERAGE_FILES" -type f | wc -l)
           echo "**Files Uploaded:** $FILE_COUNT" >> $GITHUB_STEP_SUMMARY
 
-          if [ -n "${{ inputs.flags }}" ]; then
-            echo "**Flags:** ${{ inputs.flags }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$CODECOV_FLAGS" ]; then
+            echo "**Flags:** $CODECOV_FLAGS" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

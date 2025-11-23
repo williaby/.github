@@ -59,7 +59,7 @@ echo -e "${GREEN}✅ Found ${#REPO_ARRAY[@]} Python repositories${NC}"
 echo ""
 
 # Prompt for secret name
-read -p "Secret name (e.g., QLTY_TOKEN, CODECOV_TOKEN): " SECRET_NAME
+read -rp "Secret name (e.g., QLTY_TOKEN, CODECOV_TOKEN): " SECRET_NAME
 if [ -z "$SECRET_NAME" ]; then
     echo -e "${RED}❌ Secret name required${NC}"
     exit 1
@@ -67,7 +67,7 @@ fi
 
 # Prompt for secret value (hidden input)
 echo -n "Secret value (hidden): "
-read -s SECRET_VALUE
+read -rs SECRET_VALUE
 echo ""
 
 if [ -z "$SECRET_VALUE" ]; then
@@ -82,7 +82,7 @@ for repo in "${REPO_ARRAY[@]}"; do
 done
 echo ""
 
-read -p "Continue? (y/N): " CONFIRM
+read -rp "Continue? (y/N): " CONFIRM
 if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
     echo "Aborted"
     exit 0

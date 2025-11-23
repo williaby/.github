@@ -7,7 +7,7 @@ HEADER='<!-- SPDX-FileCopyrightText: © 2019–2025 Byron Williams -->
 
 > **NOTE:** This file is maintained centrally in the organization’s `.github` repository.
 > For the latest version, see:
-> https://github.com/williaby/.github/blob/main/{{FILE_PATH}}'
+> https://github.com/ByronWilliamsCPA/.github/blob/main/{{FILE_PATH}}'
 
 # Files to sync
 FILES=(
@@ -27,7 +27,7 @@ FILES=(
 )
 
 for f in "${FILES[@]}"; do
-  org_url="https://raw.githubusercontent.com/williaby/.github/main/$f"
+  org_url="https://raw.githubusercontent.com/ByronWilliamsCPA/.github/main/$f"
   echo ">>> Syncing $f from $org_url"
   mkdir -p "$(dirname "$f")"
   {

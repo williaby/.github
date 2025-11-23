@@ -46,7 +46,7 @@ echo -e "${YELLOW}Available organizations:${NC}"
 gh api user/orgs --jq '.[] | "  - \(.login)"'
 echo ""
 
-read -p "Target organization name: " ORG_NAME
+read -rp "Target organization name: " ORG_NAME
 if [ -z "$ORG_NAME" ]; then
     echo -e "${RED}❌ Organization name required${NC}"
     exit 1
@@ -85,7 +85,7 @@ echo "  • GitHub redirects old URLs for 90+ days"
 echo "  • You must be an owner of $ORG_NAME"
 echo ""
 
-read -p "Transfer all repos listed above? (y/N): " CONFIRM_ALL
+read -rp "Transfer all repos listed above? (y/N): " CONFIRM_ALL
 echo ""
 
 SUCCESS=0
@@ -98,7 +98,7 @@ for repo in "${REPO_ARRAY[@]}"; do
 
     # If not confirming all, ask individually
     if [[ ! $CONFIRM_ALL =~ ^[Yy]$ ]]; then
-        read -p "Transfer $repo? (y/N): " CONFIRM
+        read -rp "Transfer $repo? (y/N): " CONFIRM
         if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
             echo -e "  ${YELLOW}⏭️  Skipped${NC}"
             ((SKIPPED++))
