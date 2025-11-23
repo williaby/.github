@@ -6,7 +6,7 @@
 # Usage from downstream repos:
 #   jobs:
 #     pr-validation:
-#       uses: williaby/.github/.github/workflows/python-pr-validation.yml@main
+#       uses: ByronWilliamsCPA/.github/.github/workflows/python-pr-validation.yml@main
 #       with:
 #         python-version: '3.12'
 #         require-tests: true

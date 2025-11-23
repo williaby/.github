@@ -6,7 +6,7 @@
 # Usage from downstream repos:
 #   jobs:
 #     sbom:
-#       uses: williaby/.github/.github/workflows/python-sbom.yml@main
+#       uses: ByronWilliamsCPA/.github/.github/workflows/python-sbom.yml@main
 #       with:
 #         python-version: '3.12'
 #         fail-on-vulnerabilities: true

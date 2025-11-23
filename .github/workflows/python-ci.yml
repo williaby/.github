@@ -6,7 +6,7 @@
 # Usage from downstream repos:
 #   jobs:
 #     ci:
-#       uses: williaby/.github/.github/workflows/python-ci.yml@main
+#       uses: ByronWilliamsCPA/.github/.github/workflows/python-ci.yml@main
 #       with:
 #         python-version: '3.12'
 #         coverage-threshold: 80
